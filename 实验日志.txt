@@ -1,0 +1,152 @@
+发现目标识别目标
+20190705.yolo训练，数据集是相机拍的500+图片
+    1)标签怎么打？可以用已有的API得到结果，来训练自己的！
+    2)目前在搭建yolo环境，先用它本身的数据集检测几个图片试试
+        结果识别不出来里面的人！？可以识别出一部分，识别率不算高，已解决（使用tiny降低标准即可）
+        我们的目的是：一开始向任意一个人靠近，接近面部时识别脸部
+
+20190708 使用yolo可以识别出人脸，但是不知道怎么拿到具体的坐标，只是在图上画出来了，我不知道有什么接口能获得位置。
+09:44   试着用opencv得到人脸以及位置
+        目前的思路是，用opencv得到每个图像中六张人脸的位置（如果在图像中的话），将其作为我们的输入再去训练自己的模型。
+        opencv版本太多，最新的版本教程很少，旧的版本安装不方便
+        就使用opencv4，取不到坐标的问题得到了解决，并且对于接口的使用有了一定的理解
+        人脸检测器（默认）：haarcascade_frontalface_default.xml
+
+        人脸检测器（快速Harr）：haarcascade_frontalface_alt2.xml
+
+        人脸检测器（侧视）：haarcascade_profileface.xml
+
+        眼部检测器（左眼）：haarcascade_lefteye_2splits.xml
+
+        眼部检测器（右眼）：haarcascade_righteye_2splits.xml
+
+        嘴部检测器：haarcascade_mcs_mouth.xml
+
+        鼻子检测器：haarcascade_mcs_nose.xml
+
+        身体检测器：haarcascade_fullbody.xml
+
+        人脸检测器（快速LBP）：lbpcascade_frontalface.xml
+
+
+14:27   试着训练自己的身体识别模型
+        完成了第一版本的人脸识别模型，正确率可以接受，但是还有很大的改进空间
+
+20190709 手动改善样本集，以改进第一版模型
+10:21 开始手动改进样本集
+
+    改进之后的person1识别率为0.175，正确率为0.92
+        regnition rate = 0.1752136752136752
+        right rate = 0.926829268292683
+
+    改进之前的person2：
+        regnition rate = 0.16326530612244897
+        right rate = 0.875
+
+    改进后的person2:惊了，还和原来一样
+        现在修改可行度阈值试试，改完还不如不改，还是不设置阈值最好
+
+    改进之前的person3：
+        regnition rate = 0.3783783783783784
+        right rate = 1.0
+    
+15:54优化工作做了一天了，我发现限制识别度的主要原因竟然是筛选人脸的默认删选器
+        基本上只要筛选出来这个模型就能非常准确地判断出来到底是哪个目标
+        故现在我需要做的就是找到更为精确的筛选器
+
+17:00 引入了Dlib的两种检测人脸方法，目前在测试哪种识别率最高
+    choose = 4 时：
+        person3
+        regnition rate = 0.4594594594594595
+        right rate = 0.9705882352941176
+    choose = 5 时：
+        贼慢，根本不能用来做实时图像处理
+
+20190712：今天想实现飞行器的实时人脸检测，将检测到的人名打印出来
+        大概每隔2s拍一次照，问题是如何实现对这些人的检测，这些个人的身体tm一模一样，不能作为检测依据
+        要识别脸的话我要离其中一个非常近，我怎么离他很近呢
+        我试试自己训练一个将人脸识别出来的模型，然后在判断这个人到底是谁
+        如果训练的好的的话很远就能找到目标
+        目前的问题是训练模型的环境没配好
+        我在虚拟机里面找不到两个训练所用的源程序
+
+20190713：  今天试着在服务器上编译好sampletrainer拿回来直接用 或者我也就直接在服务器上训练出xml来回来再用也是ok的
+            看具体的实验情况而定
+            拿到了从服务器上编译出来的createsample和train_scades 等会试试能不能在虚拟机上用
+            现在成功取到了一些负样本，虽然我只是在一个角度不停地拍
+
+            直接将编译出来的createsample和train_scades用进去不太行
+            但是发现了这两个程序所在的包，nice！sudo apt install libopencv-dev
+            命令1 opencv_createsamples -vec pos.vec -info pos.txt -bg neg.txt -w 128 -h 128 
+            命令2 opencv_traincascade -data data -vec pos.vec -bg neg.txt -numPos 238 -numNeg 1218 -numStages 15 -featureType LBP -w 128 -h 128 -minHitRate 0.9999 -maxFalseAlarmRate 0.5
+
+    19:00   还有两个小时就下班啦，之前遇到一个bug报错信息为：POS count : consumed 230 : 230 Train dataset for temp stage can not be filled. 
+            Branch training terminated. Cascade classifier can't be trained. Check the used training parameters.
+            查了一下原因是图片有错误格式的，改了一下然后现在在正常训练了
+            训练出来的结果不正常，识别不出来人脸
+            
+20190714:   重新训练：
+            命令1 opencv_createsamples -vec pos.vec -info pos.txt -bg neg.txt -w 50 -h 50 
+            命令2 opencv_traincascade -data data -vec pos.vec -bg neg.txt -numPos 238 -numNeg 2436 -numStages 15 -featureType LBP -w 50 -h 50 -minHitRate 0.9999 -maxFalseAlarmRate 0.5
+            成功做出一个能识别出这几个人的模型 命名为face1
+            但是这个识别做出来的效果一般，体现在其竟然能将额头当做人脸
+            这个原因大概是我截图的时候很多时候吧额头什么的也截进去了，有必要调整一下数据集了，手动截掉脸之外的地方
+
+    19:51   帮范世奇做一个模型出来：命名为fsq1
+            命令1 opencv_createsamples -vec pos.vec -info pos.txt -bg neg.txt -w 50 -h 50 
+            命令2 opencv_traincascade -data data -vec pos.vec -bg neg.txt -numPos 6 -numNeg 12 -numStages 15 -featureType LBP -w 50 -h 50 -minHitRate 0.9999 -maxFalseAlarmRate 0.5
+            啥都识别就是不识别对的
+            第二个：fsq2 啥都不识别了
+            第三个：fsq3
+            第四个：fsq4框出来了一个很大的不正确的
+            第五个：fsq5 前40次的
+
+            将输入的图片缩小
+            命令1 opencv_createsamples -vec pos.vec -info pos.txt -bg neg.txt -w 24 -h 24 
+            命令2 opencv_traincascade -data data -vec pos.vec -bg neg.txt -numPos 6 -numNeg 12 -numStages 15 -featureType LBP -w 24 -h 24 -minHitRate 0.9999 -maxFalseAlarmRate 0.5
+            第一个：fsq7 前25次  还是一样的问题，识别出来的太大了
+            第二个：fsq8 前40次  
+
+    22:10   脑洞大开，检测深色图片确定图片位置，再飞过去判断人是否是所要的人
+            目前能做到将存在人脸的位置检测出来，存在的问题，如何将黑色块划分出来
+            已解决
+
+20190715：  今天上午目标是
+            1.写一个接口在命令行打印照片位置
+            2.利用昨天识别出照片的方法接近照片
+                关键点： 我的确可以做到跟踪一个人，判断一个人是否是目标，但是做完之后我如何下次不再检测他
+                        换句话说，我必须要建立一个小数据库，存放判断过的人位置信息，下次不再找他
+                        方法每次找一个离我最远的?
+                        采用方法：可能性最大的那个，维护一个size为6的数组，每次去找可能性最大的那个
+
+                        还是必须建立一个数据库，不过只记录一下当前能拍到的人
+                        先实现发现有人，跟过去，调整到合适的视觉位置
+
+20190715:   今天的目标是做一个色彩对比识别的接口 已完成
+            开始任务飞到2.5m高处开始在视野里面找人头
+            一旦发现一个人头，将其作为目标朝其飞过去
+            在过程中将其头部影像作为数据记录下来
+            对其进行确认后打上标记，之后对于相似度高过一定值的人头不再靠近识别
+
+20190717：  能锁定到固定的人了
+            下午的目标是开始识别脸，判断出当前的人是哪位
+
+20190718:   两个bug:
+            1. 无法后退的问题，或者说后退不多
+            2. 目标跟踪，目标不见后应该在原地等候
+            已解决
+
+20190718：  关键点：刷新率太低，每次近十秒更新一次位置，来不及
+            第二：飞机只有在稳定后拍照判断位置才有效  
+            在主机上跑出来的效果比较好，刷新率大大提高
+
+20190719:   第一版，找到最近的人并识别，之后一直跟着他
+
+20190724：  CNNRNN学习
+            跟踪算法需要改进，方向判定有问题。还要在调整一下对角度的确定以及速度的确定。
+            成功啦
+
+20190726：  找到了很多关于网络的书，暑假一定要好好读几本啊。每天都去找一个类似图书馆的地方看书，包括网络原理和网络安全
+
+20190729:   改了一下跟踪的速度，当人离自己太近的时候速度自动加了一点
+            现在要将两个环节连接起来
